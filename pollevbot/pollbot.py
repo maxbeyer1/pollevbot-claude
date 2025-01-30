@@ -2,7 +2,9 @@ import requests
 import logging
 import time
 from typing import Optional
+
 from .endpoints import endpoints
+from .claude_client import ClaudeClient
 
 logger = logging.getLogger(__name__)
 __all__ = ['PollBot']
@@ -24,10 +26,16 @@ class PollBot:
     Can also be used as a context manager.
     """
 
-    def __init__(self, user: str, password: str, host: str,
-                 login_type: str = 'uw', min_option: int = 0,
-                 max_option: int = None, closed_wait: float = 5,
-                 open_wait: float = 5, lifetime: float = float('inf')):
+    def __init__(self, user: str,
+                 password: str,
+                 host: str,
+                 login_type: str = 'uw',
+                 claude_api_key: Optional[str] = None,
+                 min_option: int = 0,
+                 max_option: int = None,
+                 closed_wait: float = 5,
+                 open_wait: float = 5,
+                 lifetime: float = float('inf')):
         """
         Constructor. Creates a PollBot that answers polls on pollev.com.
 
@@ -37,6 +45,7 @@ class PollBot:
         :param login_type: Login protocol to use (either 'uw' or 'pollev').
                         If 'uw', uses MyUW (SAML2 SSO) to authenticate.
                         If 'pollev', uses pollev.com.
+        :param claude_api_key: API key for Claude. If None, uses random responses.
         :param min_option: Minimum index (0-indexed) of option to select (inclusive).
         :param max_option: Maximum index (0-indexed) of option to select (exclusive).
         :param closed_wait: Time to wait in seconds if no polls are open
@@ -69,6 +78,10 @@ class PollBot:
 
         self.lifetime = lifetime
         self.start_time = time.time()
+
+        # Init claude client if API key is provided
+        self.claude_client = ClaudeClient(
+            claude_api_key) if claude_api_key else None
 
         self.session = requests.Session()
         self.session.headers = {
@@ -125,7 +138,7 @@ class PollBot:
                                   'j_username': self.user,
                                   'j_password': self.password,
                                   '_eventId_proceed': 'Sign in'
-                              })
+        })
         soup = bs.BeautifulSoup(r.text, "html.parser")
         saml_response = soup.find('input', type='hidden')
 
@@ -195,6 +208,7 @@ class PollBot:
         try:
             r = self.session.get(url, timeout=0.3)
             # Unique id for poll
+            # print(r.json())
             poll_id = json.loads(r.json()['message'])['uid']
         # Firehose either doesn't respond or responds with no data if no poll is open.
         except (requests.exceptions.ReadTimeout, KeyError):
@@ -210,9 +224,22 @@ class PollBot:
 
         url = endpoints['poll_data'].format(uid=poll_id)
         poll_data = self.session.get(url).json()
+        # print(poll_data)
         options = poll_data['options'][self.min_option:self.max_option]
         try:
-            option_id = random.choice(options)['id']
+            if self.claude_client:
+                # Get Claude's response
+                response = self.claude_client.get_poll_response(
+                    question=poll_data['title'],
+                    options=options
+                )
+                option_id = response['selected_option_id']
+                logger.info(f"Claude selected option {option_id} "
+                            f"with confidence {response['confidence']:.2f}")
+                logger.info(f"Reasoning: {response['reasoning']}")
+            else:
+                # Fallback to random selection
+                option_id = random.choice(options)['id']
         except IndexError:
             # `options` was empty
             logger.error(f'Could not answer poll: poll only has '
@@ -223,7 +250,8 @@ class PollBot:
         r = self.session.post(
             endpoints['respond_to_poll'].format(uid=poll_id),
             headers={'x-csrf-token': self._get_csrf_token()},
-            data={'option_id': option_id, 'isPending': True, 'source': "pollev_page"}
+            data={'option_id': option_id,
+                  'isPending': True, 'source': "pollev_page"}
         )
         return r.json()
 
