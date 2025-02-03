@@ -2,6 +2,8 @@ import requests
 import logging
 import time
 from typing import Optional
+import json
+import random
 
 from .endpoints import endpoints
 from .claude_client import ClaudeClient
@@ -191,8 +193,8 @@ class PollBot:
             raise ValueError(f"'{self.host}' is not a valid poll host.")
         return r.json()['firehose_token']
 
-    def get_new_poll_id(self, firehose_token=None) -> Optional[str]:
-        import json
+    def get_new_poll_id(self, firehose_token=None) -> Optional[tuple[str, str]]:
+        # import json
 
         if firehose_token:
             url = endpoints['firehose_with_token'].format(
@@ -208,8 +210,9 @@ class PollBot:
         try:
             r = self.session.get(url, timeout=0.3)
             # Unique id for poll
-            # print(r.json())
+            print(r.json())
             poll_id = json.loads(r.json()['message'])['uid']
+            poll_type = json.loads(r.json()['message'])['type']
         # Firehose either doesn't respond or responds with no data if no poll is open.
         except (requests.exceptions.ReadTimeout, KeyError):
             return None
@@ -217,26 +220,44 @@ class PollBot:
             return None
         else:
             self.answered_polls.add(poll_id)
-            return poll_id
+            return poll_id, poll_type
 
-    def answer_poll(self, poll_id) -> dict:
-        import random
+    def answer_poll(self, poll_id, poll_type) -> dict:
+        # import random
 
-        url = endpoints['poll_data'].format(uid=poll_id)
-        poll_data = self.session.get(url).json()
-        # print(poll_data)
-        options = poll_data['options'][self.min_option:self.max_option]
+        print(f"Answering poll {poll_id} of type {poll_type}")
+
+        if poll_type == 'free_text_poll':
+            url = endpoints['poll_data_free_text'].format(uid=poll_id)
+            poll_data = self.session.get(url).json()
+            print(poll_data)
+
+        else:  # multiple_choice
+            url = endpoints['poll_data'].format(uid=poll_id)
+            poll_data = self.session.get(url).json()
+            # print(poll_data)
+            options = poll_data['options'][self.min_option:self.max_option]
+
         try:
             if self.claude_client:
                 # Get Claude's response
-                response = self.claude_client.get_poll_response(
-                    question=poll_data['title'],
-                    options=options
-                )
-                option_id = response['selected_option_id']
-                logger.info(f"Claude selected option {option_id} "
-                            f"with confidence {response['confidence']:.2f}")
-                logger.info(f"Reasoning: {response['reasoning']}")
+                if poll_type == 'free_text_poll':
+                    response = self.claude_client.get_free_text_response(
+                        question=poll_data['title']
+                    )
+                    answer = response['answer']
+                    logger.info(f"Claude's response: {answer}"
+                                f"with confidence {response['confidence']:.2f}")
+                    logger.info(f"Reasoning: {response['reasoning']}")
+                else:
+                    response = self.claude_client.get_poll_response(
+                        question=poll_data['title'],
+                        options=options
+                    )
+                    option_id = response['selected_option_id']
+                    logger.info(f"Claude selected option {option_id} "
+                                f"with confidence {response['confidence']:.2f}")
+                    logger.info(f"Reasoning: {response['reasoning']}")
             else:
                 # Fallback to random selection
                 option_id = random.choice(options)['id']
@@ -247,13 +268,17 @@ class PollBot:
                          f'self.min_option was {self.min_option} and '
                          f'self.max_option: {self.max_option}')
             return {}
-        r = self.session.post(
-            endpoints['respond_to_poll'].format(uid=poll_id),
-            headers={'x-csrf-token': self._get_csrf_token()},
-            data={'option_id': option_id,
-                  'isPending': True, 'source': "pollev_page"}
-        )
-        return r.json()
+        if poll_type == 'free_text_poll':
+            print(response)
+            return response
+        else:
+            r = self.session.post(
+                endpoints['respond_to_poll'].format(uid=poll_id),
+                headers={'x-csrf-token': self._get_csrf_token()},
+                data={'option_id': option_id,
+                      'isPending': True, 'source': "pollev_page"}
+            )
+            return r.json()
 
     def alive(self):
         return time.time() <= self.start_time + self.lifetime
@@ -268,7 +293,7 @@ class PollBot:
             return
 
         while self.alive():
-            poll_id = self.get_new_poll_id(token)
+            poll_id, poll_type = self.get_new_poll_id(token)
 
             if poll_id is None:
                 logger.info(f'`{self.host}` has not opened any new polls. '
@@ -278,5 +303,5 @@ class PollBot:
                 logger.info(f"{self.host} has opened a new poll! "
                             f"Waiting {self.open_wait} seconds before responding.")
                 time.sleep(self.open_wait)
-                r = self.answer_poll(poll_id)
+                r = self.answer_poll(poll_id, poll_type)
                 logger.info(f'Received response: {r}')
