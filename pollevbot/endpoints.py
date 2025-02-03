@@ -23,6 +23,7 @@ endpoints = {
     'poll_data': 'https://pollev.com/proxy/api/participant/multiple_choice_polls/{uid}?include=collection',
     'poll_data_free_text': 'https://pollev.com/proxy/api/participant/free_text_polls/{uid}?include=collection',
     'respond_to_poll': 'https://pollev.com/proxy/api/participant/multiple_choice_polls/{uid}/results',
+    'respond_to_poll_free_text': 'https://pollev.com/proxy/api/participant/free_text_polls/{uid}/results',
     'clear_responses': 'https://pollev.com/proxy/api/results/{id}',
     'check_responses': 'https://pollev.com/proxy/my/results?permalinks%5B%5D={uid}&'
                        'per_page=500&include_archived=false&_={timestamp}'

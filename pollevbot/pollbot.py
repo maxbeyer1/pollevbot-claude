@@ -215,9 +215,9 @@ class PollBot:
             poll_type = json.loads(r.json()['message'])['type']
         # Firehose either doesn't respond or responds with no data if no poll is open.
         except (requests.exceptions.ReadTimeout, KeyError):
-            return None
+            return None, None
         if poll_id in self.answered_polls:
-            return None
+            return None, poll_type
         else:
             self.answered_polls.add(poll_id)
             return poll_id, poll_type
@@ -269,8 +269,13 @@ class PollBot:
                          f'self.max_option: {self.max_option}')
             return {}
         if poll_type == 'free_text_poll':
-            print(response)
-            return response
+            r = self.session.post(
+                endpoints['respond_to_poll_free_text'].format(uid=poll_id),
+                headers={'x-csrf-token': self._get_csrf_token()},
+                data={'value': answer,
+                      'isPending': True, 'source': "pollev_page"}
+            )
+            return r.json()
         else:
             r = self.session.post(
                 endpoints['respond_to_poll'].format(uid=poll_id),

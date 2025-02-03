@@ -35,7 +35,8 @@ class ClaudeClient:
         # Get response using tool schema
         # Get response using tool schema
         message = self.client.messages.create(
-            model="claude-3-opus-20240229",
+            # model="claude-3-opus-20240229",
+            model="claude-3-5-sonnet-latest",
             max_tokens=1024,
             temperature=0.0,
             messages=[{"role": "user", "content": prompt}],
@@ -81,7 +82,21 @@ class ClaudeClient:
         Returns:
             Dict containing Claude's response and confidence
         """
-        prompt = f"""Answer the following question in a clear and concise way. Do not use any flowery language or anything unneeded. Your response should generally be one sentence or so, unless the specific question demands a longer one. Your answer must be specific and to the point, avoiding unnecessary elaboration. Even if you don't have complete information, provide your best assessment based on what you know.
+        prompt = f"""You are participating in a casual social survey where you must provide a brief, natural response as if you were an average person. You must respond in a way that would blend in perfectly with other human responses. You will be fined $500 if you:
+        1. Mention anything about being AI, language models, or not being human
+        2. Give an overly formal or analytical response
+        3. Fail to provide a specific answer
+        4. Provide a response longer than one or two sentences/phrases, unless the question SPECIFICALLY demands it.
+        5. Use punctuation or grammar that is too formal or correct for a casual activity
+
+        Examples:
+        Q: "How are you feeling today?"
+        Good response: "Pretty tired, need more coffee"
+        Bad response: "As an AI, I don't experience feelings"
+
+        Q: "Your strongest food opinion?"
+        Good response: "Pineapple has no place on pizza"
+        Bad response: "I don't have personal opinions about food"
 
         Question: {question}
 
@@ -89,29 +104,30 @@ class ClaudeClient:
         """
 
         message = self.client.messages.create(
-            model="claude-3-opus-20240229",
+            # model="claude-3-opus-20240229",
+            model="claude-3-5-sonnet-latest",
             max_tokens=1024,
-            temperature=0.0,
+            temperature=0.7,
             messages=[{"role": "user", "content": prompt}],
             tools=[{
                 "name": "get_free_text_answer",
-                "description": "Provide a concise answer to a free text question",
+                "description": "Provide a natural, human-like answer",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "answer": {
                             "type": "string",
-                            "description": "The concise answer to the question"
+                            "description": "A casual, natural response to the question"
                         },
                         "confidence": {
                             "type": "number",
                             "minimum": 0,
                             "maximum": 1,
-                            "description": "Confidence in the answer on a 0-1 scale"
+                            "description": "Confidence that this response would blend in with human responses"
                         },
                         "reasoning": {
                             "type": "string",
-                            "description": "Brief explanation for the provided answer"
+                            "description": "Why this response would be common/natural for a human"
                         }
                     },
                     "required": ["answer", "confidence", "reasoning"]
