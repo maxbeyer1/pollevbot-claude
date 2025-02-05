@@ -7,6 +7,7 @@ import random
 
 from .endpoints import endpoints
 from .claude_client import ClaudeClient
+from .response_logger import ResponseLogger
 from .output_validator import validate_and_retry_response, get_user_confirmation
 
 logger = logging.getLogger(__name__)
@@ -37,8 +38,9 @@ class PollBot:
                  min_option: int = 0,
                  max_option: int = None,
                  closed_wait: float = 5,
-                 open_wait: float = 5,
-                 lifetime: float = float('inf')):
+                 open_wait: float = 15,
+                 lifetime: float = float('inf'),
+                 log_file: str = "poll_responses.jsonl"):
         """
         Constructor. Creates a PollBot that answers polls on pollev.com.
 
@@ -85,6 +87,8 @@ class PollBot:
         # Init claude client if API key is provided
         self.claude_client = ClaudeClient(
             claude_api_key) if claude_api_key else None
+
+        self.response_logger = ResponseLogger(log_file)
 
         self.session = requests.Session()
         self.session.headers = {
@@ -265,6 +269,8 @@ class PollBot:
                     logger.info(f"Claude's response: {answer}"
                                 f"with confidence {response['confidence']:.2f}")
                     logger.info(f"Reasoning: {response['reasoning']}")
+
+                    self.response_logger.log_response(poll_data, response)
                 else:
                     response = self.claude_client.get_poll_response(
                         question=poll_data['title'],
@@ -280,6 +286,8 @@ class PollBot:
                     logger.info(f"Claude selected option {option_id} "
                                 f"with confidence {response['confidence']:.2f}")
                     logger.info(f"Reasoning: {response['reasoning']}")
+
+                    self.response_logger.log_response(poll_data, response)
             else:
                 # Fallback to random selection
                 option_id = random.choice(options)['id']
