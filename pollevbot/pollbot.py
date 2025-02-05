@@ -7,6 +7,7 @@ import random
 
 from .endpoints import endpoints
 from .claude_client import ClaudeClient
+from .output_validator import validate_and_retry_response, get_user_confirmation
 
 logger = logging.getLogger(__name__)
 __all__ = ['PollBot']
@@ -242,9 +243,24 @@ class PollBot:
             if self.claude_client:
                 # Get Claude's response
                 if poll_type == 'free_text_poll':
-                    response = self.claude_client.get_free_text_response(
+                    # response = self.claude_client.get_free_text_response(
+                    #     question=poll_data['title']
+                    # )
+                    response = validate_and_retry_response(
+                        claude_client=self.claude_client,
                         question=poll_data['title']
                     )
+
+                    if response is None:
+                        logger.warning(
+                            "Could not get valid response from Claude, skipping poll")
+                        return {}
+
+                    # Get user confirmation before submitting
+                    if not get_user_confirmation(response, timeout=60.0):
+                        logger.info("Response cancelled by user")
+                        return {}
+
                     answer = response['answer']
                     logger.info(f"Claude's response: {answer}"
                                 f"with confidence {response['confidence']:.2f}")
@@ -255,6 +271,12 @@ class PollBot:
                         options=options
                     )
                     option_id = response['selected_option_id']
+
+                    # Show multiple choice response for confirmation too
+                    if not get_user_confirmation(response, timeout=10.0):
+                        logger.info("Response cancelled by user")
+                        return {}
+
                     logger.info(f"Claude selected option {option_id} "
                                 f"with confidence {response['confidence']:.2f}")
                     logger.info(f"Reasoning: {response['reasoning']}")
