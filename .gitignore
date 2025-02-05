@@ -112,3 +112,6 @@ setup.py
 /PollEvBot.egg-info
 /dev
 .pypirc
+
+# Logs
+poll_responses.jsonl
