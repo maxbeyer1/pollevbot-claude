@@ -242,6 +242,7 @@ class PollBot:
             poll_data = self.session.get(url).json()
             # print(poll_data)
             options = poll_data['options'][self.min_option:self.max_option]
+            # print(options)
 
         try:
             if self.claude_client:
@@ -276,12 +277,12 @@ class PollBot:
                         question=poll_data['title'],
                         options=options
                     )
-                    option_id = response['selected_option_id']
+                    option_id = options[response['selected_option_id']]['id']
 
                     # Show multiple choice response for confirmation too
-                    if not get_user_confirmation(response, timeout=10.0):
-                        logger.info("Response cancelled by user")
-                        return {}
+                    # if not get_user_confirmation(response, timeout=10.0):
+                    #     logger.info("Response cancelled by user")
+                    #     return {}
 
                     logger.info(f"Claude selected option {option_id} "
                                 f"with confidence {response['confidence']:.2f}")
@@ -307,6 +308,8 @@ class PollBot:
             )
             return r.json()
         else:
+            print(f"Posting to {
+                  endpoints["respond_to_poll"].format(uid=poll_id)}")
             r = self.session.post(
                 endpoints['respond_to_poll'].format(uid=poll_id),
                 headers={'x-csrf-token': self._get_csrf_token()},
