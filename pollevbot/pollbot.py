@@ -98,6 +98,8 @@ class PollBot:
         # IDs of all polls we have answered already
         self.answered_polls = set()
 
+        self.last_error = None
+
     def __enter__(self):
         return self
 
@@ -214,10 +216,23 @@ class PollBot:
             )
         try:
             r = self.session.get(url, timeout=0.3)
+            response_data = r.json()
+
             # Unique id for poll
-            print(r.json())
-            poll_id = json.loads(r.json()['message'])['uid']
-            poll_type = json.loads(r.json()['message'])['type']
+            print(response_data)
+
+            # Check for subscription expired error
+            if isinstance(response_data.get('message'), str):
+                try:
+                    error_data = json.loads(response_data['message'])
+                    if 'error' in error_data:
+                        self.last_error = error_data
+                        return None, None
+                except json.JSONDecodeError:
+                    pass
+
+            poll_id = json.loads(response_data['message'])['uid']
+            poll_type = json.loads(response_data['message'])['type']
         # Firehose either doesn't respond or responds with no data if no poll is open.
         except (requests.exceptions.ReadTimeout, KeyError):
             return None, None
@@ -334,6 +349,14 @@ class PollBot:
             poll_id, poll_type = self.get_new_poll_id(token)
 
             if poll_id is None:
+                # Check if it was an expired subscription
+                if isinstance(getattr(self, 'last_error', None), dict) and \
+                   self.last_error.get('error', {}).get('type') == 'ExpiredSubscription':
+                    logger.info(
+                        "Firehose subscription expired, getting new token")
+                    token = self.get_firehose_token()
+                    continue
+
                 logger.info(f'`{self.host}` has not opened any new polls. '
                             f'Waiting {self.closed_wait} seconds before checking again.')
                 time.sleep(self.closed_wait)

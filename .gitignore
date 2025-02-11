@@ -113,5 +113,7 @@ setup.py
 /dev
 .pypirc
 
+repomix-output.*
+
 # Logs
 poll_responses.jsonl
