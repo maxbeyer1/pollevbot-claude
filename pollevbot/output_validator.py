@@ -1,6 +1,7 @@
 from typing import Dict, Optional
 import re
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ def validate_and_retry_response(claude_client, question: str, max_retries: int =
     return None
 
 
-def get_user_confirmation(response: Dict, timeout: float = 60.0) -> bool:
+def _terminal_confirmation(response: Dict, timeout: float = 60.0) -> bool:
     """
     Present Claude's response to the user and wait for confirmation before proceeding.
 
@@ -182,3 +183,47 @@ def get_user_confirmation(response: Dict, timeout: float = 60.0) -> bool:
     except:  # Queue.Empty or other issues
         print("\nTimeout reached - cancelling response")
         return False
+
+
+def get_user_confirmation(response: Dict, telegram_notifier=None, timeout: float = 60.0) -> tuple[bool, Optional[str]]:
+    """
+    Get confirmation for Claude's response via Telegram or terminal fallback
+
+    Returns:
+        Tuple of (approved boolean, optional modified text)
+    """
+    if telegram_notifier:
+        try:
+            # Send for approval and wait for response
+            response_id = telegram_notifier.send_for_approval(
+                response, response.get('question', 'Unknown question'))
+            if response_id:
+                result = telegram_notifier.wait_for_response(
+                    response_id, timeout)
+                if result:
+                    return (
+                        result['status'] == 'approved',
+                        result['modified_text']
+                    )
+        except Exception as e:
+            logger.warning(
+                f"Telegram notification failed: {e}, falling back to terminal")
+
+    # Fallback to terminal input
+    print("\n" + "="*50)
+    print("CLAUDE'S RESPONSE:")
+    print(f"Answer: {response['answer']}")
+    print(f"Confidence: {response['confidence']:.2f}")
+    print(f"Reasoning: {response['reasoning']}")
+    print("="*50)
+    print(f"\nPress 'y' to submit this response, any other key to cancel.")
+
+    try:
+        import sys
+        if sys.stdin.readable():
+            char = sys.stdin.read(1)
+            return char.lower() == 'y', None
+    except:
+        pass
+
+    return False, None

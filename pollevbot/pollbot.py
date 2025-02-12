@@ -1,14 +1,15 @@
-import requests
 import logging
 import time
 from typing import Optional
 import json
 import random
+import requests
 
 from .endpoints import endpoints
 from .claude_client import ClaudeClient
 from .response_logger import ResponseLogger
 from .output_validator import validate_and_retry_response, get_user_confirmation
+from .telegram_notifier import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 __all__ = ['PollBot']
@@ -35,6 +36,8 @@ class PollBot:
                  host: str,
                  login_type: str = 'uw',
                  claude_api_key: Optional[str] = None,
+                 telegram_token: Optional[str] = None,
+                 telegram_chat_id: Optional[str] = None,
                  min_option: int = 0,
                  max_option: int = None,
                  closed_wait: float = 5,
@@ -99,6 +102,18 @@ class PollBot:
         self.answered_polls = set()
 
         self.last_error = None
+
+        self.telegram_notifier = None
+        if telegram_token:
+            self.telegram_notifier = TelegramNotifier(
+                token=telegram_token,
+                admin_chat_id=telegram_chat_id  # This can be None initially
+            )
+            self.telegram_notifier.start()
+
+            if not telegram_chat_id:
+                logger.info(
+                    "No Telegram chat ID provided. Please message your bot with /start to get your chat ID")
 
     def __enter__(self):
         return self
@@ -276,15 +291,26 @@ class PollBot:
                             "Could not get valid response from Claude, skipping poll")
                         return {}
 
-                    # Get user confirmation before submitting
-                    if not get_user_confirmation(response, timeout=60.0):
+                    # Add question to response for context in Telegram
+                    response['question'] = poll_data['title']
+
+                    # Get user confirmation and possibly modified text
+                    approved, modified_text = get_user_confirmation(
+                        response,
+                        self.telegram_notifier,
+                        timeout=60.0
+                    )
+
+                    if not approved:
                         logger.info("Response cancelled by user")
                         return {}
 
-                    answer = response['answer']
-                    logger.info(f"Claude's response: {answer}"
-                                f"with confidence {response['confidence']:.2f}")
-                    logger.info(f"Reasoning: {response['reasoning']}")
+                    answer = modified_text if modified_text is not None else response['answer']
+
+                    logger.info(f"Using response: {answer}")
+                    logger.info(
+                        f"Original confidence: {response['confidence']:.2f}")
+                    logger.info(f"Original reasoning: {response['reasoning']}")
 
                     self.response_logger.log_response(poll_data, response)
                 else:

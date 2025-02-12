@@ -46,10 +46,20 @@ def main():
     password = get_env_var('POLLEV_PASSWORD')
     host = get_env_var('POLLEV_HOST')
     claude_api_key = get_env_var('CLAUDE_API_KEY')
+    telegram_token = get_env_var('TELEGRAM_BOT_TOKEN')
+    telegram_chat_id = get_env_var('TELEGRAM_ADMIN_CHAT_ID')
 
     # If you're using a non-uw PollEv account,
     # add the argument "login_type='pollev'"
-    with PollBot(user, password, host, login_type='pollev', claude_api_key=claude_api_key) as bot:
+    with PollBot(
+        user,
+        password,
+        host,
+        login_type='pollev',
+        claude_api_key=claude_api_key,
+        telegram_token=telegram_token,
+        telegram_chat_id=telegram_chat_id
+    ) as bot:
         bot.run()
 
 
