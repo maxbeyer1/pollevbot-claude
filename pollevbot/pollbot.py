@@ -381,6 +381,10 @@ class PollBot:
                     logger.info(
                         "Firehose subscription expired, getting new token")
                     token = self.get_firehose_token()
+
+                    # Reset last_error
+                    self.last_error = None
+
                     continue
 
                 logger.info(f'`{self.host}` has not opened any new polls. '

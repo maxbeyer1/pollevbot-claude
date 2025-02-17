@@ -94,17 +94,32 @@ class TelegramNotifier:
                     )
                     with self.bot.retrieve_data(call.from_user.id, call.message.chat.id) as data:
                         data['response_id'] = response_id
+                        data['original_message_id'] = call.message.message_id
 
         @self.bot.message_handler(state=ResponseStates.awaiting_edit)
         def handle_edited_response(message):
             with self.bot.retrieve_data(message.from_user.id, message.chat.id) as data:
                 response_id = data['response_id']
+                original_message_id = data.get('original_message_id')
 
             with self.responses_lock:
                 if response_id in self.pending_responses:
                     pending = self.pending_responses[response_id]
                     pending.status = 'approved'
                     pending.modified_text = message.text
+
+                    # Update original message to show edited response
+                    if original_message_id:
+                        try:
+                            self.bot.edit_message_text(
+                                f"{message.reply_to_message.text}\n\n✏️ Edited to:\n{message.text}",
+                                message.chat.id,
+                                original_message_id,
+                                reply_markup=None
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to update original message: {e}")
 
             self.bot.send_message(
                 message.chat.id,
