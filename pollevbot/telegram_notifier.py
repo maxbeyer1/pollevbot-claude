@@ -5,8 +5,10 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import telebot
-from telebot.handler_backends import State, StatesGroup
-from telebot import types
+from telebot.states import State, StatesGroup
+from telebot.states.sync.context import StateContext
+from telebot.storage import StateMemoryStorage
+from telebot import types, custom_filters
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,10 @@ class TelegramNotifier:
     """Handles Telegram notifications and response approval"""
 
     def __init__(self, token: str, admin_chat_id: Optional[str] = None):
-        self.bot = telebot.TeleBot(token)
+        # Initialize with a state storage backend
+        self.state_storage = StateMemoryStorage()
+        self.bot = telebot.TeleBot(
+            token, state_storage=self.state_storage, use_class_middlewares=True)
         self.admin_chat_id = admin_chat_id
 
         # Dictionary to store pending responses
@@ -38,6 +43,10 @@ class TelegramNotifier:
 
         # Lock for thread-safe access to pending_responses
         self.responses_lock = threading.Lock()
+
+        # Setup middleware for state management
+        from telebot.states.sync.middleware import StateMiddleware
+        self.bot.setup_middleware(StateMiddleware(self.bot))
 
         self._setup_handlers()
 
@@ -52,8 +61,10 @@ class TelegramNotifier:
             )
 
         @self.bot.callback_query_handler(func=lambda call: call.data.startswith(('approve_', 'reject_', 'edit_')))
-        def handle_response(call):
+        def handle_response(call, state: StateContext):
             action, response_id = call.data.split('_')
+
+            print(f"Received callback: {action}, {response_id}")
 
             with self.responses_lock:
                 if response_id not in self.pending_responses:
@@ -87,20 +98,46 @@ class TelegramNotifier:
                         "Please send the modified answer:",
                         reply_to_message_id=call.message.message_id
                     )
-                    self.bot.set_state(
-                        call.from_user.id,
-                        ResponseStates.awaiting_edit,
-                        call.message.chat.id
+
+                    # Set user state to awaiting_edit
+                    state.set(ResponseStates.awaiting_edit)
+
+                    # Store response ID and original message ID in user data
+                    state.add_data(
+                        response_id=response_id,
+                        original_message_id=call.message.message_id
                     )
-                    with self.bot.retrieve_data(call.from_user.id, call.message.chat.id) as data:
-                        data['response_id'] = response_id
-                        data['original_message_id'] = call.message.message_id
+
+                    with state.data() as data:
+                        logger.debug(f"Stored edit data: {data}")
 
         @self.bot.message_handler(state=ResponseStates.awaiting_edit)
-        def handle_edited_response(message):
-            with self.bot.retrieve_data(message.from_user.id, message.chat.id) as data:
-                response_id = data['response_id']
-                original_message_id = data.get('original_message_id')
+        def handle_edited_response(message, state: StateContext):
+            # Retrieve stored data
+            try:
+                with state.data() as data:
+                    logger.debug(f"Retrieved data for edit: {data}")
+                    response_id = data.get('response_id')
+                    original_message_id = data.get('original_message_id')
+
+                    if not response_id:
+                        logger.error(
+                            "Could not retrieve response_id from state data")
+                        self.bot.send_message(
+                            message.chat.id,
+                            "❌ Error: Could not process your edit. Please try again.",
+                            reply_to_message_id=message.message_id
+                        )
+                        state.delete()
+                        return
+            except Exception as e:
+                logger.error(f"Error retrieving state data: {str(e)}")
+                self.bot.send_message(
+                    message.chat.id,
+                    "❌ Error processing your edit. Please try again.",
+                    reply_to_message_id=message.message_id
+                )
+                return
 
             with self.responses_lock:
                 if response_id in self.pending_responses:
@@ -121,12 +158,25 @@ class TelegramNotifier:
                             logger.error(
                                 f"Failed to update original message: {e}")
 
+                else:
+                    logger.error(
+                        f"Response {response_id} not found in pending responses")
+                    self.bot.send_message(
+                        message.chat.id,
+                        "❌ Error: This response is no longer pending or has expired.",
+                        reply_to_message_id=message.message_id
+                    )
+                    state.delete()
+                    return
+
             self.bot.send_message(
                 message.chat.id,
                 "✅ Response updated and approved!",
                 reply_to_message_id=message.message_id
             )
-            self.bot.delete_state(message.from_user.id, message.chat.id)
+            state.delete()  # Clear state after processing
+
+        self.bot.add_custom_filter(custom_filters.StateFilter(self.bot))
 
     def start(self):
         """Start the Telegram bot in a separate thread"""
