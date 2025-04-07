@@ -41,7 +41,7 @@ class PollBot:
                  min_option: int = 0,
                  max_option: int = None,
                  closed_wait: float = 5,
-                 open_wait: float = 15,
+                 open_wait: float = 60,
                  lifetime: float = float('inf'),
                  log_file: str = "poll_responses.jsonl"):
         """
