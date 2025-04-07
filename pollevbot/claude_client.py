@@ -36,7 +36,7 @@ class ClaudeClient:
         # Get response using tool schema
         message = self.client.messages.create(
             # model="claude-3-opus-20240229",
-            model="claude-3-5-sonnet-latest",
+            model="claude-3-7-sonnet-latest",
             max_tokens=1024,
             temperature=0.0,
             messages=[{"role": "user", "content": prompt}],
