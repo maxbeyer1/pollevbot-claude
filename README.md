@@ -2,21 +2,25 @@
 
 **pollevbot** is a bot that automatically responds to polls on [pollev.com](https://pollev.com/). 
 It continually checks if a specified host has opened any polls. Once a poll has been opened, 
-it submits a random response. 
+it uses Claude AI to generate appropriate responses.
 
 Requires Python 3.7 or later.
 ## Dependencies
 
 [Requests](https://pypi.org/project/requests/), 
-[BeautifulSoup](https://pypi.org/project/beautifulsoup4/). 
+[BeautifulSoup](https://pypi.org/project/beautifulsoup4/),
+[Anthropic](https://pypi.org/project/anthropic/),
+[Flask](https://pypi.org/project/Flask/) (for web GUI).
 
 [APScheduler](https://pypi.org/project/APScheduler/) to deploy to Heroku.
 
 ## Usage
 
+### Command Line Interface
+
 Install `pollevbot`:
 ```
-pip install pollevbot
+pip install -r requirements.txt
 ```
 
 Set your username, password, and desired poll host:
@@ -33,14 +37,41 @@ from pollevbot import PollBot
 user = 'My Username'
 password = 'My Password'
 host = 'PollEverywhere URL Extension e.g. "uwpsych"'
+claude_api_key = 'Your Claude API Key'
 
 # If you're using a non-UW PollEv account,
 # add the argument "login_type='pollev'"
-with PollBot(user, password, host) as bot:
+with PollBot(
+    user, 
+    password, 
+    host, 
+    login_type='pollev',
+    claude_api_key=claude_api_key
+) as bot:
     bot.run()
 ```
 Alternatively, you can clone this repo, set your login credentials in 
-[main.py](pollevbot/main.py) and run it from there.
+[main.py](main.py) and run it from there.
+
+### Web Interface
+
+PollEvBot now includes a web interface for easier configuration and monitoring. To start the web interface:
+
+```bash
+python webgui.py
+```
+
+By default, the web interface will be available at http://localhost:5000. You can customize the host and port:
+
+```bash
+python webgui.py --host 127.0.0.1 --port 8080
+```
+
+The web interface allows you to:
+- Configure PollEverywhere credentials and other settings
+- Start and stop the bot
+- Monitor recent poll responses
+- Adjust wait times and other operational parameters
 
 ## Heroku
 
@@ -61,6 +92,9 @@ specifying what minutes to run pollevbot.
 * `PASSWORD`: PollEv account password.
 * `POLLHOST`: PollEv host name.
 * `USERNAME`: PollEv account username.
+* `CLAUDE_API_KEY`: API key for Claude AI.
+* `TELEGRAM_BOT_TOKEN`: (Optional) Token for Telegram bot integration.
+* `TELEGRAM_ADMIN_CHAT_ID`: (Optional) Chat ID for admin notifications.
 
 **Example**
 
@@ -76,9 +110,21 @@ variables as follows:
 * `PASSWORD`: `yourpassword`
 * `POLLHOST`: `teacher123`
 * `USERNAME`: `yourusername`
+* `CLAUDE_API_KEY`: `your-claude-api-key`
 
 Then click `Deploy App` and wait for the app to finish building. 
 **pollevbot** is now deployed to Heroku! 
+
+## Configuration Options
+
+The bot can be configured with the following options:
+
+* `min_option`: Minimum index (0-indexed) of option to select (inclusive)
+* `max_option`: Maximum index (0-indexed) of option to select (exclusive)
+* `closed_wait`: Time to wait in seconds if no polls are open before checking again (default: 5)
+* `open_wait`: Time to wait in seconds if a poll is open before answering (default: 60)
+* `lifetime`: Lifetime of this PollBot in seconds (default: infinite)
+* `log_file`: File path for logging responses (default: "poll_responses.jsonl")
 
 ## Disclaimer
 
