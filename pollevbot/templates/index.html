@@ -26,6 +26,39 @@
         .response-card {
             margin-bottom: 15px;
         }
+        .status-messages {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+        .status-message {
+            padding: 8px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+        }
+        .status-message.info {
+            background-color: #e9f5ff;
+            border-left: 3px solid #0d6efd;
+        }
+        .status-message.success {
+            background-color: #e9ffe9;
+            border-left: 3px solid #198754;
+        }
+        .status-message.warning {
+            background-color: #fff9e6;
+            border-left: 3px solid #ffc107;
+        }
+        .status-message.danger {
+            background-color: #ffe9e9;
+            border-left: 3px solid #dc3545;
+        }
+        .status-timestamp {
+            font-size: 0.8em;
+            color: #6c757d;
+        }
     </style>
 </head>
 <body>
@@ -180,12 +213,23 @@
             </div>
 
             <div class="col-md-4">
-                <div class="card">
+                <div class="card mb-4">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <h4>Recent Responses</h4>
+                        <h4>Bot Status</h4>
                         <span id="status-badge" class="badge {{ 'bg-success' if bot_status == 'running' else 'bg-danger' }}">
                             {{ bot_status|upper }}
                         </span>
+                    </div>
+                    <div class="card-body">
+                        <div id="status-messages" class="status-messages mb-3">
+                            <div class="text-muted text-center py-3">Status updates will appear here...</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <h4>Recent Responses</h4>
                     </div>
                     <div class="card-body">
                         {% if recent_responses %}
@@ -216,7 +260,9 @@
                     const statusBadge = document.getElementById('status-badge');
                     const startButton = document.querySelector('form[action="/start"] button');
                     const stopButton = document.querySelector('form[action="/stop"] button');
+                    const statusMessagesContainer = document.getElementById('status-messages');
                     
+                    // Update status badge
                     if (data.status === 'running') {
                         statusBadge.className = 'badge bg-success';
                         statusBadge.textContent = 'RUNNING';
@@ -228,11 +274,59 @@
                         startButton.disabled = false;
                         stopButton.disabled = true;
                     }
+                    
+                    // Update status messages
+                    if (data.messages && data.messages.length > 0) {
+                        // Clear placeholder if it exists
+                        if (statusMessagesContainer.querySelector('.text-muted')) {
+                            statusMessagesContainer.innerHTML = '';
+                        }
+                        
+                        // Check if we have new messages to add
+                        const lastMessageTimestamp = statusMessagesContainer.lastElementChild ? 
+                            statusMessagesContainer.lastElementChild.getAttribute('data-timestamp') : null;
+                        
+                        let hasNewMessages = false;
+                        
+                        // Add new messages
+                        data.messages.forEach(msg => {
+                            // Only add if it's a new message
+                            if (!lastMessageTimestamp || msg.timestamp > lastMessageTimestamp) {
+                                hasNewMessages = true;
+                                
+                                const messageDiv = document.createElement('div');
+                                messageDiv.className = `status-message ${msg.type}`;
+                                messageDiv.setAttribute('data-timestamp', msg.timestamp);
+                                
+                                const messageText = document.createElement('div');
+                                messageText.textContent = msg.message;
+                                
+                                const timeStamp = document.createElement('div');
+                                timeStamp.className = 'status-timestamp';
+                                timeStamp.textContent = msg.timestamp;
+                                
+                                messageDiv.appendChild(messageText);
+                                messageDiv.appendChild(timeStamp);
+                                statusMessagesContainer.appendChild(messageDiv);
+                            }
+                        });
+                        
+                        // If new messages were added, scroll to the bottom
+                        if (hasNewMessages) {
+                            statusMessagesContainer.scrollTop = statusMessagesContainer.scrollHeight;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching status:', error);
                 });
         }
         
-        // Check status every 5 seconds
-        setInterval(updateStatus, 5000);
+        // Initial status update
+        updateStatus();
+        
+        // Check status every 3 seconds
+        setInterval(updateStatus, 3000);
     </script>
 </body>
 </html>

@@ -1,7 +1,8 @@
 import os
 import threading
 import logging
-from typing import Optional
+import time
+from typing import Optional, List, Dict
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SelectField, IntegerField, FloatField
@@ -19,6 +20,8 @@ bot_instance = None
 bot_thread = None
 bot_status = "stopped"
 config = {}
+status_messages: List[Dict] = []
+MAX_STATUS_MESSAGES = 50
 
 class ConfigForm(FlaskForm):
     """Form for configuring the PollBot"""
@@ -36,6 +39,19 @@ class ConfigForm(FlaskForm):
     open_wait = FloatField('Open Wait Time (seconds)', default=60.0, validators=[DataRequired()])
     lifetime = FloatField('Lifetime (seconds, inf for unlimited)', default=float('inf'), validators=[DataRequired()])
     log_file = StringField('Log File Path', default="poll_responses.jsonl", validators=[DataRequired()])
+
+def add_status_message(message: str, message_type: str = "info"):
+    """Add a status message to the global list"""
+    global status_messages, MAX_STATUS_MESSAGES
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    status_messages.append({
+        "timestamp": timestamp,
+        "message": message,
+        "type": message_type
+    })
+    # Keep only the most recent messages
+    if len(status_messages) > MAX_STATUS_MESSAGES:
+        status_messages = status_messages[-MAX_STATUS_MESSAGES:]
 
 class WebGUI:
     """Web interface for configuring and controlling PollBot"""
@@ -101,7 +117,11 @@ class WebGUI:
                 return redirect(url_for('index'))
             
             try:
-                # Create a new bot instance
+                # Clear previous status messages when starting a new bot
+                global status_messages
+                status_messages = []
+                
+                # Create a new bot instance with status callback
                 bot_instance = PollBot(
                     user=config.get('pollev_username'),
                     password=config.get('pollev_password'),
@@ -115,7 +135,8 @@ class WebGUI:
                     closed_wait=config.get('closed_wait', 5.0),
                     open_wait=config.get('open_wait', 60.0),
                     lifetime=config.get('lifetime', float('inf')),
-                    log_file=config.get('log_file', 'poll_responses.jsonl')
+                    log_file=config.get('log_file', 'poll_responses.jsonl'),
+                    status_callback=add_status_message
                 )
                 
                 # Start bot in a separate thread
@@ -152,8 +173,11 @@ class WebGUI:
         
         @self.app.route('/status', methods=['GET'])
         def get_status():
-            global bot_status
-            return jsonify({'status': bot_status})
+            global bot_status, status_messages
+            return jsonify({
+                'status': bot_status,
+                'messages': status_messages[-10:] if status_messages else []
+            })
     
     def _run_bot(self, bot):
         try:

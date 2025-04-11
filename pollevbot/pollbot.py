@@ -43,7 +43,8 @@ class PollBot:
                  closed_wait: float = 5,
                  open_wait: float = 60,
                  lifetime: float = float('inf'),
-                 log_file: str = "poll_responses.jsonl"):
+                 log_file: str = "poll_responses.jsonl",
+                 status_callback = None):
         """
         Constructor. Creates a PollBot that answers polls on pollev.com.
 
@@ -62,6 +63,9 @@ class PollBot:
                         before answering.
         :param lifetime: Lifetime of this PollBot (in seconds).
                         If float('inf'), runs forever.
+        :param status_callback: Optional callback function to receive status updates.
+                        Called with (message, message_type) where message_type is
+                        one of "info", "success", "warning", or "danger".
         :raises ValueError: if login_type is not 'uw' or 'pollev'.
         """
         if login_type not in {'uw', 'pollev'}:
@@ -86,6 +90,11 @@ class PollBot:
 
         self.lifetime = lifetime
         self.start_time = time.time()
+        
+        # Status callback for providing feedback
+        self.status_callback = status_callback
+        self.last_poll_check_time = None
+        self.last_status_time = None
 
         # Init claude client if API key is provided
         self.claude_client = ClaudeClient(
@@ -362,37 +371,61 @@ class PollBot:
     def alive(self):
         return time.time() <= self.start_time + self.lifetime
 
+    def send_status(self, message, message_type="info"):
+        """Send a status update via the callback if one is registered"""
+        if self.status_callback:
+            self.status_callback(message, message_type)
+        logger.info(message)
+        self.last_status_time = time.time()
+        
     def run(self):
         """Runs the script."""
         try:
+            self.send_status("Bot starting...", "info")
             self.login()
+            self.send_status("Successfully logged in to PollEv", "success")
             token = self.get_firehose_token()
+            self.send_status("Connected to PollEv firehose", "success")
         except (LoginError, ValueError) as e:
-            logger.error(e)
+            error_msg = str(e)
+            logger.error(error_msg)
+            self.send_status(f"Error: {error_msg}", "danger")
             return
 
+        poll_check_count = 0
         while self.alive():
+            self.last_poll_check_time = time.time()
+            poll_check_count += 1
+            
+            # Send heartbeat every 10 poll checks
+            if poll_check_count % 10 == 0:
+                self.send_status("Bot is running and checking for polls", "info")
+                
             poll_id, poll_type = self.get_new_poll_id(token)
 
             if poll_id is None:
                 # Check if it was an expired subscription
                 if isinstance(getattr(self, 'last_error', None), dict) and \
                    self.last_error.get('error', {}).get('type') == 'ExpiredSubscription':
-                    logger.info(
-                        "Firehose subscription expired, getting new token")
+                    self.send_status("Firehose subscription expired, getting new token", "warning")
                     token = self.get_firehose_token()
 
                     # Reset last_error
                     self.last_error = None
-
                     continue
 
-                logger.info(f'`{self.host}` has not opened any new polls. '
-                            f'Waiting {self.closed_wait} seconds before checking again.')
+                # Only log occasionally to avoid flooding the status messages
+                current_time = time.time()
+                if self.last_status_time is None or current_time - self.last_status_time > 60:
+                    self.send_status(f'No new polls found. Checking again in {self.closed_wait} seconds', "info")
+                
                 time.sleep(self.closed_wait)
             else:
-                logger.info(f"{self.host} has opened a new poll! "
-                            f"Waiting {self.open_wait} seconds before responding.")
+                self.send_status(f"New poll detected! Waiting {self.open_wait} seconds before responding", "success")
                 time.sleep(self.open_wait)
                 r = self.answer_poll(poll_id, poll_type)
+                if r:
+                    self.send_status(f"Successfully answered poll", "success")
+                else:
+                    self.send_status(f"No answer submitted for poll", "warning")
                 logger.info(f'Received response: {r}')
